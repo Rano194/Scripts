@@ -1,0 +1,33 @@
+local Main = Instance.new("ScreenGui")
+Main.Name = "Main"
+Main.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+Main.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+
+local Completed = Instance.new("Frame")
+Completed.Name = "Completed"
+Completed.Position = UDim2.new(0.5, 0, 0.5, 0)
+Completed.Size = UDim2.new(1, 0, 1, 0)
+Completed.BackgroundColor3 = Color3.new(0.00784314, 0.462745, 0)
+Completed.BorderSizePixel = 0
+Completed.BorderColor3 = Color3.new(0, 0, 0)
+Completed.AnchorPoint = Vector2.new(0.5, 0.5)
+Completed.Parent = Main
+
+local TextLabel = Instance.new("TextLabel")
+TextLabel.Name = "TextLabel"
+TextLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+TextLabel.Size = UDim2.new(0.156381, 0, 0.0865052, 0)
+TextLabel.BackgroundColor3 = Color3.new(1, 1, 1)
+TextLabel.BackgroundTransparency = 1
+TextLabel.BorderSizePixel = 0
+TextLabel.BorderColor3 = Color3.new(0, 0, 0)
+TextLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+TextLabel.Transparency = 1
+TextLabel.Text = "Completed"
+TextLabel.TextColor3 = Color3.new(1, 1, 1)
+TextLabel.TextSize = 14
+TextLabel.FontFace = Font.new("rbxasset://fonts/families/FredokaOne.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+TextLabel.TextScaled = true
+TextLabel.TextWrapped = true
+TextLabel.Parent = Completed
+
