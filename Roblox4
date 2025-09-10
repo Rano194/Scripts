@@ -1,0 +1,14 @@
+print("Run Script")
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Rano194/Scripts/refs/heads/main/PlayButtonNew"))()
+
+task.wait(15)
+
+local petName = getgenv().Config["PetName"]
+
+print("[INFO] Loading information | Storage Account")
+print("-----------------------------------------")
+print("[INFO] Pets: "..petName)
+
+-- Dehash script
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Rano194/Others/refs/heads/main/Dehash"))()
+print("[INFO] loading dehash remote")
