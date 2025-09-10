@@ -1,0 +1,103 @@
+local Players = game:GetService("Players")
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+
+-- Ждём загрузки кнопки
+local function WaitForPlayButton()
+	local maxWait = 90
+	local waited = 0
+	while waited < maxWait do
+		local newsApp = PlayerGui:FindFirstChild("NewsApp")
+		if newsApp and newsApp:FindFirstChild("EnclosingFrame") and newsApp.EnclosingFrame:FindFirstChild("MainFrame") then
+			local playButton = newsApp.EnclosingFrame.MainFrame:FindFirstChild("Buttons")
+				and newsApp.EnclosingFrame.MainFrame.Buttons:FindFirstChild("PlayButton")
+			if playButton then
+				return playButton
+			end
+		end
+		waited += 0.5
+		task.wait(0.5)
+	end
+	return nil
+end
+
+local playButton = WaitForPlayButton()
+
+    local Players = game:GetService("Players")
+    local Player = Players.LocalPlayer
+    local CoreGui = game:GetService("CoreGui")
+    local PlayerGui = Player:FindFirstChildOfClass("PlayerGui") or CoreGui
+    local LiveOpsMapSwap = require(game:GetService("ReplicatedStorage").SharedModules.Game.LiveOpsMapSwap)
+
+    local playButton = game:GetService("Players").LocalPlayer.PlayerGui.NewsApp.EnclosingFrame.MainFrame.Buttons.PlayButton
+    local babyButton = game:GetService("Players").LocalPlayer.PlayerGui.DialogApp.Dialog.RoleChooserDialog.Baby
+    local rbxProductButton = game:GetService("Players").LocalPlayer.PlayerGui.DialogApp.Dialog.RobuxProductDialog.Buttons.ButtonTemplate
+    local claimButton = game:GetService("Players").LocalPlayer.PlayerGui.DailyLoginApp.Frame.Body.Buttons.ClaimButton
+
+    task.wait(1)
+    local xc = 0
+    local NewAcc = false
+    local HasTradeLic = false
+    local ClientData = require(game:GetService("ReplicatedStorage").ClientModules.Core.ClientData)
+    local Cash = ClientData.get_data()[game.Players.LocalPlayer.Name].money
+    
+
+    local function FireSig(button)
+        pcall(function()
+            for _, connection in pairs(getconnections(button.MouseButton1Down)) do
+                connection:Fire()
+            end
+            task.wait(1)
+            for _, connection in pairs(getconnections(button.MouseButton1Up)) do
+                connection:Fire()
+            end
+            task.wait(1)
+            for _, connection in pairs(getconnections(button.MouseButton1Click)) do
+                connection:Fire()
+                -- print(button.Name.." clicked!")
+            end
+        end)
+    end
+    
+    local NewsApp = game:GetService("Players").LocalPlayer.PlayerGui.NewsApp.Enabled
+
+    local sound = require(game.ReplicatedStorage:WaitForChild("Fsys")).load("SoundPlayer")
+    local UI = require(game.ReplicatedStorage:WaitForChild("Fsys")).load("UIManager")
+
+    sound.FX:play("BambooButton")
+    UI.set_app_visibility("NewsApp", false)
+
+    while NewsApp do
+        NewsApp = game:GetService("Players").LocalPlayer.PlayerGui.NewsApp.Enabled
+        sound = require(game.ReplicatedStorage:WaitForChild("Fsys")).load("SoundPlayer")
+        UI = require(game.ReplicatedStorage:WaitForChild("Fsys")).load("UIManager")
+    
+        sound.FX:play("BambooButton")
+        UI.set_app_visibility("NewsApp", false)
+        task.wait(3)
+    end
+
+    task.wait(5)
+    game:GetService("ReplicatedStorage"):WaitForChild("API"):WaitForChild("DailyLoginAPI/ClaimDailyReward"):InvokeServer()
+    sound.FX:play("BambooButton")
+    UI.set_app_visibility("DailyLoginApp", false)
+
+    local args = {
+	"spawn_dialog",
+	"Home"
+    }
+    game:GetService("ReplicatedStorage"):WaitForChild("API"):WaitForChild("TradingServerAPI/ButtonPressed"):FireServer(unpack(args))
+    task.wait(1)
+    local args = {
+	"Home"
+    }
+    game:GetService("ReplicatedStorage"):WaitForChild("API"):WaitForChild("TradingServerAPI/IncrementConsecutiveSpawnCounter"):FireServer(unpack(args))
+    task.wait(1)
+    local args = {
+	"Parents",
+	{
+		source_for_logging = "intro_sequence",
+		dont_enter_location = true
+	}
+    }
+    game:GetService("ReplicatedStorage"):WaitForChild("API"):WaitForChild("TeamAPI/ChooseTeam"):InvokeServer(unpack(args))
