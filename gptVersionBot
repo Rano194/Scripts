@@ -1,0 +1,319 @@
+--==[ CONFIG ]==--
+getgenv().Config = {
+    StorageAccount = "DawnVort3xClaw",
+    PetName = "aztec_egg_2025_golden_lynx",
+    PerPotionPet = 6,
+    AutoFuse = true,
+
+    ApiBase = "https://temesssss.pythonanywhere.com",
+    MaxPerTrade = 18,
+    TradeOpenTimeout = 25
+}
+
+--==[ PRELOAD YOUR UTIL SCRIPTS IF NEEDED ]==--
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Rano194/Scripts/refs/heads/main/Roblox17"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Rano194/Others/refs/heads/main/Dehash"))()
+print("[INFO] loading dehash remote")
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Rano194/Scripts/refs/heads/main/PlayButtonNews1"))()
+task.wait(15)
+
+--==[ SERVICES ]==--
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+
+local ClientData = require(ReplicatedStorage.ClientModules.Core.ClientData)
+
+local SettingsAPI = ReplicatedStorage.API["SettingsAPI/SetSetting"]
+local TradeAPI = ReplicatedStorage.API.TradeAPI
+local AcceptOrDecline = TradeAPI["AcceptOrDeclineTradeRequest"]
+local TradeRequestReceived = TradeAPI["TradeRequestReceived"]
+local AddItemToOffer = TradeAPI["AddItemToOffer"]
+local AcceptNegotiation = TradeAPI["AcceptNegotiation"]
+local ConfirmTrade = TradeAPI["ConfirmTrade"]
+local CreatePetObject = ReplicatedStorage.API["PetObjectAPI/CreatePetObject"]
+local EquipTool = ReplicatedStorage.API["ToolAPI/Equip"]
+local ConsumeFoodObject = ReplicatedStorage.API["PetAPI/ConsumeFoodObject"]
+
+--==[ HTTP ]==--
+local requestFunc = syn and syn.request or http_request or request
+local function trim(s) return (string.gsub(s or "", "^%s*(.-)%s*$", "%1")) end
+local function decode_json_safe(body)
+    local ok, data = pcall(function()
+        return HttpService:JSONDecode(trim(body))
+    end)
+    if ok then return data end
+    return nil
+end
+local function http_get_raw(path_with_query)
+    local url = string.format("%s%s", getgenv().Config.ApiBase, path_with_query)
+    return requestFunc({ Url = url, Method = "GET" })
+end
+local function http_get_json(path_with_query)
+    local res = http_get_raw(path_with_query)
+    if not res or res.StatusCode >= 400 then return nil end
+    return decode_json_safe(res.Body)
+end
+
+--==[ INVENTORY HELPERS ]==--
+local function getPlayerData()
+    return ClientData.get_data()[tostring(LocalPlayer)]
+end
+
+local function countAgePotions()
+    local c = 0
+    for _, item in pairs((getPlayerData().inventory.food) or {}) do
+        if item.kind == "pet_age_potion" then
+            c += 1
+        end
+    end
+    return c
+end
+
+local function countPetsByNeed(petName) -- считаем только тех, кого будем прокачивать (age<6, без mega)
+    local c = 0
+    for _, pet in pairs((getPlayerData().inventory.pets) or {}) do
+        if pet.kind == petName and pet.properties.age < 6 and not pet.properties.mega_neon then
+            c += 1
+        end
+    end
+    return c
+end
+
+local function getPetsAny(petName, maxCount) -- для возврата любых питомцев этого вида
+    local list = {}
+    for _, pet in pairs((getPlayerData().inventory.pets) or {}) do
+        if pet.kind == petName then
+            table.insert(list, pet)
+            if #list >= maxCount then break end
+        end
+    end
+    return list
+end
+
+--==[ ANTI-AFK ]==--
+task.spawn(function()
+    local vu = game:GetService("VirtualUser")
+    while true do
+        task.wait(300)
+        vu:CaptureController()
+        vu:ClickButton2(Vector2.new())
+        workspace.CurrentCamera.CFrame = workspace.CurrentCamera.CFrame * CFrame.Angles(0, math.rad(math.random(-2,2)), 0)
+    end
+end)
+
+--==[ SETTINGS: Enable "Everyone" trades ]==--
+SettingsAPI:FireServer("trade_requests", 1)
+
+--==[ STATUS API ]==--
+local localName = Players.LocalPlayer.Name
+
+local function setStatus(name, needPets, status)
+    http_get_raw(string.format("/api/SendInfoAccounts?Name=%s&NeedPets=%d&Status=%s", name, needPets, status))
+end
+
+--==[ TRADE ]==--
+local tradeChecked = false
+local expectedFrom = getgenv().Config.StorageAccount
+
+TradeRequestReceived.OnClientEvent:Connect(function(player)
+    if tradeChecked == false and player and player.Name == expectedFrom then
+        tradeChecked = true
+        AcceptOrDecline:InvokeServer(player, true)
+        LocalPlayer.PlayerGui.DialogApp.Dialog.Visible = false
+        print("[INFO] Accept trade | "..player.Name)
+    else
+        AcceptOrDecline:InvokeServer(player, false)
+        print("[INFO] Decline trade | "..(player and player.Name or "nil"))
+    end
+end)
+
+local function isTradeOpen()
+    return LocalPlayer.PlayerGui.TradeApp.Frame.Visible == true
+end
+
+local function acceptConfirmUntilClosed(maxSec)
+    local t0 = os.clock()
+    while isTradeOpen() do
+        AcceptNegotiation:FireServer()
+        ConfirmTrade:FireServer()
+        task.wait(0.5)
+        if maxSec and (os.clock() - t0) > maxSec then break end
+    end
+    return not isTradeOpen()
+end
+
+--==[ CALC NEED PETS ]==--
+local PetName = getgenv().Config.PetName
+local PerPotion = getgenv().Config.PerPotionPet
+
+local potions = countAgePotions()
+local havePets = countPetsByNeed(PetName)
+local NeedPets = math.floor(potions / PerPotion)
+local TotalNeedPets = NeedPets
+NeedPets = math.max(NeedPets - havePets, 0)
+
+print("-----------------------------------------")
+print("[INFO] Loading information | Farmer Account")
+print("[INFO] Age-Potion:", potions)
+print("[INFO] Need pets:", NeedPets)
+print("-----------------------------------------")
+
+-- Публичим статус: ждём выдачу питомцев со склада
+setStatus(localName, NeedPets, "WaitGivePets")
+
+--==[ CLAIM PETS PHASE ]==--
+do
+    local limited = 0
+    print("[Step] | Claim pets...")
+
+    while true do
+        task.wait(1)
+
+        -- Обновляем счётчик "сколько уже есть" и выходим если достаточно
+        havePets = countPetsByNeed(PetName)
+        if havePets >= TotalNeedPets then
+            print("[INFO] Reached TotalNeedPets:", havePets, "/", TotalNeedPets)
+            break
+        end
+
+        -- Периодически проверяем складской запас, чтобы не ждать в холостую
+        if limited >= 10 then
+            local stockInfo = http_get_json("/api/GetPetsStock")
+            local stock = stockInfo and tonumber(stockInfo.PetsStock) or 0
+            print("[INFO] Storage stock:", stock)
+            if stock == 0 then
+                print("[INFO] Exit: storage out of stock.")
+                break
+            end
+            limited = 0
+        end
+        limited += 1
+
+        -- Если трейд открыт — подтверждаем до закрытия
+        if isTradeOpen() then
+            task.wait(2.5)
+            acceptConfirmUntilClosed(25)
+            tradeChecked = false
+            print("[INFO] Finish claim trade")
+        end
+    end
+end
+
+--==[ AUTO FUSION (опционально) ]==--
+if getgenv().Config.AutoFuse then
+    task.spawn(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/Rano194/Scripts/refs/heads/main/AutoFusionPet"))()
+    end)
+end
+
+--==[ FEED PETS PHASE ]==--
+print("[Step] | Feed pets")
+local function getAgePotionsList()
+    local list = {}
+    for _, item in pairs((getPlayerData().inventory.food) or {}) do
+        if item.kind == "pet_age_potion" then
+            table.insert(list, item)
+        end
+    end
+    return list
+end
+
+local function getUpgradeablePets(petName)
+    local list = {}
+    for _, pet in pairs((getPlayerData().inventory.pets) or {}) do
+        if pet.kind == petName and pet.properties.age < 6 then
+            table.insert(list, pet)
+        end
+    end
+    return list
+end
+
+while true do
+    local agePotions = getAgePotionsList()
+    local pets = getUpgradeablePets(PetName)
+
+    if #agePotions < PerPotion then
+        warn(("Potion sold (%d/%d)"):format(#agePotions, PerPotion))
+        break
+    end
+    if #pets == 0 then
+        break
+    end
+
+    local selectedPet = table.remove(pets, 1)
+    local selected = {}
+    for i = 1, PerPotion do
+        table.insert(selected, table.remove(agePotions, 1))
+    end
+
+    EquipTool:InvokeServer(selectedPet.unique, {use_sound_delay = true})
+    EquipTool:InvokeServer(selected[1].unique, {use_sound_delay = true})
+    task.wait(0.2)
+
+    local additional = {}
+    for i = 1, PerPotion - 1 do
+        table.insert(additional, selected[i].unique)
+    end
+
+    local ok, err = pcall(function()
+        CreatePetObject:InvokeServer(
+            "__Enum_PetObjectCreatorType_2",
+            { additional_consume_uniques = additional, pet_unique = selectedPet.unique, unique_id = selected[PerPotion].unique }
+        )
+    end)
+    if not ok then warn("feed error:", err) end
+
+    local petModel
+    for _ = 1, 50 do
+        local found = workspace:WaitForChild("PetObjects"):FindFirstChildWhichIsA("Model")
+        if found then petModel = found break end
+        task.wait(0.05)
+    end
+    if petModel then
+        ConsumeFoodObject:FireServer(petModel, selectedPet.unique)
+    else
+        warn("no pet model")
+    end
+    task.wait(0.2)
+end
+
+--==[ RETURN PETS PHASE ]==--
+print("[Step] | Return pets")
+setStatus(localName, NeedPets, "Competing")
+
+local canceledLastBatch = false
+while true do
+    task.wait(1)
+
+    -- Сколько петов осталось вернуть
+    local petsLeft = getPetsAny(PetName, 9999) -- берём все для подсчёта
+    if #petsLeft == 0 then
+        break
+    end
+
+    -- Если трейд открыт — выгружаем до 18 петов и подтверждаем
+    if isTradeOpen() then
+        task.wait(2.5)
+        local toSend = getPetsAny(PetName, getgenv().Config.MaxPerTrade)
+        if #toSend < getgenv().Config.MaxPerTrade then
+            canceledLastBatch = true
+        end
+        for _, pet in ipairs(toSend) do
+            AddItemToOffer:FireServer(pet.unique)
+            task.wait(0.05)
+        end
+
+        acceptConfirmUntilClosed(25)
+        tradeChecked = false
+        print("[INFO] Finish return trade")
+
+        if canceledLastBatch then
+            break
+        end
+    end
+end
+
+setStatus(localName, NeedPets, "Pending")
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Rano194/Scripts/refs/heads/main/Gui"))()
