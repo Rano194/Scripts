@@ -1,0 +1,109 @@
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Rano194/Scripts/refs/heads/main/PlayButtonNew"))()
+
+task.wait(15)
+
+local petName = getgenv().Config["PetName"]
+
+print("[INFO] Loading information | Storage Account")
+print("-----------------------------------------")
+print("[INFO] Pets: "..petName)
+
+-- Dehash script
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Rano194/Others/refs/heads/main/Dehash"))()
+print("[INFO] loading dehash remote")
+
+local requestFunc = syn and syn.request or http_request or request
+
+-- getting count pet
+local clientData = require(game.ReplicatedStorage.ClientModules.Core.ClientData)
+local playerData = clientData.get_data()[tostring(game.Players.LocalPlayer)]
+
+local count = 0
+for _, pet in pairs(playerData.inventory.pets or {}) do
+    if pet.kind == petName and pet.properties.age < 6 and not pet.properties.mega_neon then
+        count += 1
+    end
+end
+
+local res = requestFunc({ Url = "https://temesssss.pythonanywhere.com/api/SetPetsStock?int="..count, Method = "GET" })
+
+function UpdatePetsSet(petName)
+    local clientData = require(game.ReplicatedStorage.ClientModules.Core.ClientData)
+    local playerData = clientData.get_data()[tostring(game.Players.LocalPlayer)]
+
+    local count = 0
+    for _, pet in pairs(playerData.inventory.pets or {}) do
+        if pet.kind == petName and pet.properties.age < 6 and not pet.properties.mega_neon then
+            count += 1
+        end
+    end
+    local res = requestFunc({ Url = "https://temesssss.pythonanywhere.com/api/SetPetsStock?int="..count, Method = "GET" })
+end
+-- Function
+function GetFilteredPets(petName, maxCount)
+    local playerData = clientData.get_data()[tostring(game.Players.LocalPlayer)]
+    local filteredPets = {}
+
+    for _, pet in pairs(playerData.inventory.pets or {}) do
+        if #filteredPets >= maxCount then
+            break
+        end
+
+        if pet.kind == petName and pet.properties.age < 6 and not pet.properties.mega_neon and not pet.properties.neon then
+            table.insert(filteredPets, pet)
+            continue
+        end
+
+        if pet.kind == petName and pet.properties.age < 6 and not pet.properties.mega_neon then
+            table.insert(filteredPets, pet)
+            continue
+        end
+    end
+
+    return filteredPets
+end
+
+-- Trade
+while true do
+    task.wait(5)
+    local res = requestFunc({ Url = "https://temesssss.pythonanywhere.com/api/GetLastAccount", Method = "GET" })
+    local data = game:GetService("HttpService"):JSONDecode(res.Body)
+    local NeedPets = data.NeedPets
+    local Nickname = data.Nickname
+    local status = data.Status
+    if status == "WaitGivePets" then
+        local count = math.min(NeedPets, 18)
+        local pets = GetFilteredPets(petName, count)
+        for i, pet in ipairs(pets) do
+            local args = {pet.unique}
+            game:GetService("ReplicatedStorage"):WaitForChild("API"):WaitForChild("TradeAPI/AddItemToOffer"):FireServer(unpack(args))
+        end
+        print("[INFO] Offer pets | "..count)
+        if game:GetService("Players").LocalPlayer.PlayerGui.TradeApp.Frame.Visible == false then
+            UpdatePetsSet(PetName)
+            print("[INFO] Finish trade")
+            task.wait(5)
+            break
+        else
+            task.wait(1)
+            game:GetService("ReplicatedStorage"):WaitForChild("API"):WaitForChild("TradeAPI/AcceptNegotiation"):FireServer()
+            game:GetService("ReplicatedStorage"):WaitForChild("API"):WaitForChild("TradeAPI/ConfirmTrade"):FireServer()
+        end
+    elseif status == "Competing"
+        print("[INFO] Detect status Ready, claim pets")
+        while true do
+            task.wait(1)
+            game:GetService("ReplicatedStorage"):WaitForChild("API"):WaitForChild("TradeAPI/AcceptNegotiation"):FireServer()
+            game:GetService("ReplicatedStorage"):WaitForChild("API"):WaitForChild("TradeAPI/ConfirmTrade"):FireServer()
+            if game:GetService("Players").LocalPlayer.PlayerGui.TradeApp.Frame.Visible == false then
+                print("[INFO] Finish trade")
+                task.wait(5)
+                break
+            end
+        end
+    elseif status == "Pending" then
+        local res = requestFunc({ Url = "https://temesssss.pythonanywhere.com/api/DelLastAccount", Method = "GET" })
+        task.wait(3)
+        continue
+    end
+end
