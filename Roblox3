@@ -1,0 +1,2 @@
+print("Run Script")
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Rano194/Scripts/refs/heads/main/PlayButtonNew"))()
