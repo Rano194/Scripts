@@ -1,0 +1,43 @@
+---
+
+print("Run Script")
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Rano194/Others/refs/heads/main/Dehash"))()
+print("[INFO] loading dehash remote")
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Rano194/Scripts/refs/heads/main/PlayButtonNew"))()
+
+task.wait(15)
+
+local petName = getgenv().Config["PetName"]
+
+print("[INFO] Loading information | Storage Account")
+print("-----------------------------------------")
+print("[INFO] Pets: "..petName)
+
+local requestFunc = syn and syn.request or http_request or request
+
+-- getting count pet
+local clientData = require(game.ReplicatedStorage.ClientModules.Core.ClientData)
+local playerData = clientData.get_data()[tostring(game.Players.LocalPlayer)]
+
+local count = 0
+for _, pet in pairs(playerData.inventory.pets or {}) do
+    if pet.kind == petName and pet.properties.age < 6 and not pet.properties.mega_neon then
+        count += 1
+    end
+end
+
+local res = requestFunc({ Url = "https://temesssss.pythonanywhere.com/api/SetPetsStock?int="..count, Method = "GET" })
+
+function UpdatePetsSet(petName)
+    local clientData = require(game.ReplicatedStorage.ClientModules.Core.ClientData)
+    local playerData = clientData.get_data()[tostring(game.Players.LocalPlayer)]
+
+    local count = 0
+    for _, pet in pairs(playerData.inventory.pets or {}) do
+        if pet.kind == petName and pet.properties.age < 6 and not pet.properties.mega_neon then
+            count += 1
+        end
+    end
+    local res = requestFunc({ Url = "https://temesssss.pythonanywhere.com/api/SetPetsStock?int="..count, Method = "GET" })
+end
